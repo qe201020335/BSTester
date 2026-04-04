@@ -3,7 +3,17 @@
 using System.Diagnostics;
 
 
-Console.WriteLine(Run());
+for (var i = 0; i < 10; i++)
+{
+    Console.WriteLine($"Run {i + 1}/10");
+    if (Run())
+    {
+        Console.WriteLine("Trampoline error detected!");
+        return;
+    }
+}
+
+Console.WriteLine("Trampoline error not detected after 10 runs.");
 
 
 bool Run()
