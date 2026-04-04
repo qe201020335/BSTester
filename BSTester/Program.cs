@@ -3,26 +3,15 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using FileSystemWatcher = System.IO.FileSystemWatcher;
-using BSTester;
 
 const string STEAM_DIR = "/home/sky/.steam/steam";
 const string STEAM_COMPAT_DIR = "/home/sky/.local/share/BSManager/SharedContent/compatdata";
 const string BS_DIR = "/home/sky/.local/share/BSManager/BSInstances/1.42.2 Debug";
-const string BS_PATH = $"{BS_DIR}/Beat Saber.exe";
+const string BS_EXE = "Beat Saber.exe";
+const string BS_PATH = $"{BS_DIR}/{BS_EXE}";
 const string PROTON_PATH = "/home/sky/.steam/debian-installation/steamapps/common/Proton 9.0 (Beta)/proton";
 
-var cts = new CancellationTokenSource();
-
-AppDomain.CurrentDomain.ProcessExit += (_, _) => cts.Cancel();
-
-var processInfo = new ProcessStartInfo("python3")
-{
-    ArgumentList = { PROTON_PATH, "run", BS_PATH, "--debug", "--trace", "--no-yeet", "fpfc", "--verbose" },
-    UseShellExecute = false,
-    RedirectStandardOutput = false,
-    RedirectStandardError = false,
-    WorkingDirectory = BS_DIR,
-};
+LinuxLauncher.EnableSubreaper();
 
 // Add all the environment variables
 var envVars = new Dictionary<string, string>
@@ -38,18 +27,16 @@ var envVars = new Dictionary<string, string>
     { "WINEDLLOVERRIDES", "winhttp=n,b" },
 };
 
-foreach (var kvp in envVars)
-{
-    processInfo.EnvironmentVariables[kvp.Key] = kvp.Value;
-}
 
 var logsDir = Path.Combine(BS_DIR, "Logs");
 
-var gameProcess = ProcessHelper.StartProcess(processInfo, cts.Token);
+using var gameProcess = LinuxLauncher.StartGame(PROTON_PATH, BS_PATH, 
+    ["--debug", "--trace", "--no-yeet", "fpfc", "--verbose"], envVars);
 gameProcess.EnableRaisingEvents = true;
 
 var gameExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 gameProcess.Exited += (_, _) => gameExited.TrySetResult(true);
+var trampolineTimeout = Task.Delay(TimeSpan.FromSeconds(45));
 
 // Monitor for log file recreation and stream it to stdout.
 var monitorTask = Task.Run(async () =>
@@ -65,21 +52,51 @@ var monitorTask = Task.Run(async () =>
     FileSystemEventHandler onCreated = (_, e) =>
     {
         if (e.Name != "_latest.log")
+        {
+            Console.WriteLine($"Log file recreated: {e.Name}");
             fileRecreated.TrySetResult(e.Name);
+        }
     };
 
     watcher.Created += onCreated;
 
     // Wait for either recreation, game exit, or timeout.
-    var timeout = Task.Delay(TimeSpan.FromSeconds(30));
+    var timeout = Task.Delay(TimeSpan.FromSeconds(10));
     var ready = await Task.WhenAny(fileRecreated.Task, gameExited.Task, timeout);
 
     watcher.Created -= onCreated;
 
-    if (ready != fileRecreated.Task) return;
+    var gamePid = LinuxLauncher.FindGamePidByCmdline(BS_EXE);
+    if (gamePid == null)
+    {
+        Console.Error.WriteLine("Failed to find game process");
+        gameProcess.Kill(true);
+        return;
+    }
 
+    Console.WriteLine($"game pid = {gamePid}");
+
+    if (ready == timeout)
+    {
+        Console.WriteLine("Log file creation timeout");
+        LinuxLauncher.KillPid(gamePid.Value);
+        return;
+    } 
+
+    if (ready == gameExited.Task)
+    {
+        Console.WriteLine("Game exited before log file was created");
+        return;
+    }
+
+    Console.WriteLine("Reading log file to detect trampoline error");
     var logFileName = await fileRecreated.Task;
-    if (string.IsNullOrWhiteSpace(logFileName)) return;
+    if (string.IsNullOrWhiteSpace(logFileName))
+    {
+        Console.WriteLine("Log file name is null or whitespace");
+        LinuxLauncher.KillPid(gamePid.Value);
+        return;
+    }
     var logPath = Path.Combine(logsDir, logFileName);
     
     var tailStartInfo = new ProcessStartInfo("tail")
@@ -90,7 +107,7 @@ var monitorTask = Task.Run(async () =>
         RedirectStandardError = true,
     };
 
-    using var tailProcess = ProcessHelper.StartProcess(tailStartInfo, cts.Token);
+    using var tailProcess = Process.Start(tailStartInfo);
 
     tailProcess.EnableRaisingEvents = true;
     var tailExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -99,11 +116,11 @@ var monitorTask = Task.Run(async () =>
     {
         if (e.Data != null)
         {
-            Console.WriteLine(e.Data);
-            if (e.Data.Contains("(wrapper dynamic-method) MonoMod.Utils.DynamicMethodDefinition.Trampoline<"))
+            // Console.WriteLine(e.Data);
+            if (e.Data.Contains("DynamicMethodDefinition.Trampoline<"))
             {
                 Console.WriteLine("TRAMPOLINE ERROR DETECTED, EXITING");
-                gameProcess.Kill(entireProcessTree: true);
+                LinuxLauncher.KillPid(gamePid.Value);
             }
         }
     };
@@ -123,9 +140,15 @@ var monitorTask = Task.Run(async () =>
     tailProcess.BeginOutputReadLine();
     tailProcess.BeginErrorReadLine();
 
-    var finished = await Task.WhenAny(gameExited.Task, tailExited.Task);
+    var finished = await Task.WhenAny(gameExited.Task, tailExited.Task, trampolineTimeout);
 
-    if (finished == gameExited.Task && !tailProcess.HasExited)
+    if (finished == trampolineTimeout)
+    {
+        // game running without trampoline error
+        Console.WriteLine("Game running without trampoline error, exiting");
+        LinuxLauncher.KillPid(gamePid.Value);
+    }
+    else if (finished == gameExited.Task && !tailProcess.HasExited)
     {
         try { tailProcess.Kill(); } catch { }
         await tailExited.Task;
@@ -137,4 +160,3 @@ var monitorTask = Task.Run(async () =>
 });
 
 await Task.WhenAll(gameExited.Task, monitorTask);
-gameProcess.Dispose();
