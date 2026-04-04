@@ -27,14 +27,6 @@ var processInfo = new ProcessStartInfo("python3")
 // Add all the environment variables
 var envVars = new Dictionary<string, string>
 {
-    // { "CHROME_DESKTOP", "bs-manager.desktop" },
-    // { "FC_FONTATIONS", "1" },
-    // { "GDK_BACKEND", "wayland" },
-    // { "MONOMOD_DMD_DEBUG", "1" },
-    // { "MONOMOD_LogToFile", "./monomod.log" },
-    // { "OXR_PARALLEL_VIEWS", "1" },
-    // { "SBX_CHROME_API_RQ", "1" },
-    // { "SHLVL", "0" },
     { "STEAM_COMPAT_APP_ID", "620980" },
     { "STEAM_COMPAT_CLIENT_INSTALL_PATH", STEAM_DIR },
     { "STEAM_COMPAT_DATA_PATH", STEAM_COMPAT_DIR },
@@ -44,7 +36,6 @@ var envVars = new Dictionary<string, string>
     { "SteamGameId", "620980" },
     { "SteamOverlayGameId", "620980" },
     { "WINEDLLOVERRIDES", "winhttp=n,b" },
-    // { "_", PROTON_PATH },
 };
 
 foreach (var kvp in envVars)
@@ -54,11 +45,11 @@ foreach (var kvp in envVars)
 
 var logsDir = Path.Combine(BS_DIR, "Logs");
 
-using var process = ProcessHelper.StartProcess(processInfo, cts.Token);
-process.EnableRaisingEvents = true;
+var gameProcess = ProcessHelper.StartProcess(processInfo, cts.Token);
+gameProcess.EnableRaisingEvents = true;
 
 var gameExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-process.Exited += (_, _) => gameExited.TrySetResult(true);
+gameProcess.Exited += (_, _) => gameExited.TrySetResult(true);
 
 // Monitor for log file recreation and stream it to stdout.
 var monitorTask = Task.Run(async () =>
@@ -107,7 +98,14 @@ var monitorTask = Task.Run(async () =>
     DataReceivedEventHandler onOutput = (_, e) =>
     {
         if (e.Data != null)
+        {
             Console.WriteLine(e.Data);
+            if (e.Data.Contains("(wrapper dynamic-method) MonoMod.Utils.DynamicMethodDefinition.Trampoline<"))
+            {
+                Console.WriteLine("TRAMPOLINE ERROR DETECTED, EXITING");
+                gameProcess.Kill(entireProcessTree: true);
+            }
+        }
     };
 
     DataReceivedEventHandler onError = (_, e) =>
@@ -139,3 +137,4 @@ var monitorTask = Task.Run(async () =>
 });
 
 await Task.WhenAll(gameExited.Task, monitorTask);
+gameProcess.Dispose();
