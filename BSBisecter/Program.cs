@@ -96,7 +96,7 @@ public static class Program
         return output.Contains("TRAMPOLINE ERROR DETECTED");
     }
 
-    static void LoopRun()
+    static bool LoopRun()
     {
         for (var i = 0; i < 10; i++)
         {
@@ -104,19 +104,57 @@ public static class Program
             if (Run())
             {
                 Console.WriteLine("Trampoline error detected!");
-                return;
+                return true;
             }
         }
 
         Console.WriteLine("Trampoline error not detected after 10 runs.");
+        return false;
     }
     
     public static void Main(string[] args)
     {
-        var starting = "";
+        var starting = "8fea484";  // last know good
         var ending = "337bf786c"; // first 25 prerelease
-        //git rev-list --reverse --first-parent ?????..337bf786c
-        CheckoutAndCompileAndReplaceMonoMod("337bf786c");
-        LoopRun();
+
+        var progress = "";
+        
+        //git rev-list --reverse --first-parent 8fea484..337bf786c
+
+        var psi = new ProcessStartInfo("git")
+        {
+            Arguments = "rev-list --reverse --first-parent 8fea484..337bf786c",
+            RedirectStandardOutput = true,
+            WorkingDirectory = MONOMOD_SRC,
+        };
+        var proc = Process.Start(psi) ??  throw new InvalidOperationException("Failed to start process");
+        var output = proc.StandardOutput.ReadToEnd();
+        proc.WaitForExit();
+        if (proc.ExitCode != 0)
+        {
+            throw new Exception("git rev-list exited with code: " + proc.ExitCode);
+        }
+        
+        var commits = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse();
+
+        foreach (var commit in commits)
+        {
+            try
+            {
+                CheckoutAndCompileAndReplaceMonoMod(commit);
+                if (!LoopRun())
+                {
+                    Console.WriteLine($"Trampoline error not detected on commit: {commit}");
+                    return;
+                }
+            }
+            catch (Exception e)
+            {
+                
+                Console.WriteLine($"Error on commit {commit}");
+                throw;
+            }
+        }
+
     }
 }

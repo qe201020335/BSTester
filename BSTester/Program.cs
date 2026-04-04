@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text.RegularExpressions;
 using FileSystemWatcher = System.IO.FileSystemWatcher;
 
 const string STEAM_DIR = "/home/sky/.steam/steam";
@@ -112,12 +113,14 @@ var monitorTask = Task.Run(async () =>
     tailProcess.EnableRaisingEvents = true;
     var tailExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    var trampolineRe = new Regex(@"DynamicMethodDefinition\.Trampoline<.+\(.*\)>\(.*\)$", RegexOptions.Compiled);
+    
     DataReceivedEventHandler onOutput = (_, e) =>
     {
         if (e.Data != null)
         {
             // Console.WriteLine(e.Data);
-            if (e.Data.Contains("DynamicMethodDefinition.Trampoline<"))
+            if (trampolineRe.Match(e.Data).Success)
             {
                 Console.WriteLine("TRAMPOLINE ERROR DETECTED, EXITING");
                 LinuxLauncher.KillPid(gamePid.Value);
