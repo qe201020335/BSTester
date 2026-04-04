@@ -20,11 +20,12 @@ public static class LinuxLauncher
 
     public static Process StartGame(string protonScript, string gameExe, string[] args, Dictionary<string, string> env)
     {
+        Console.WriteLine($"Starting game: {gameExe}");
         var psi = new ProcessStartInfo("python3", [protonScript, "run", gameExe, ..args])
         {
             UseShellExecute = false,
-            RedirectStandardOutput = false,
-            RedirectStandardError = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(gameExe) ?? throw new Exception("Failed to get game directory"),
         };
         
@@ -34,6 +35,17 @@ public static class LinuxLauncher
         }
 
         var p = Process.Start(psi) ?? throw new Exception("Failed to start Proton");
+        
+        p.OutputDataReceived += (_, e) =>
+        {
+          // do nothing;
+        };
+        
+        p.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data != null)
+                Console.Error.WriteLine(e.Data);
+        };
 
         return p;
     }
