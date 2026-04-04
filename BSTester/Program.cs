@@ -3,12 +3,17 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using FileSystemWatcher = System.IO.FileSystemWatcher;
+using BSTester;
 
 const string STEAM_DIR = "/home/sky/.steam/steam";
 const string STEAM_COMPAT_DIR = "/home/sky/.local/share/BSManager/SharedContent/compatdata";
 const string BS_DIR = "/home/sky/.local/share/BSManager/BSInstances/1.42.2 Debug";
 const string BS_PATH = $"{BS_DIR}/Beat Saber.exe";
 const string PROTON_PATH = "/home/sky/.steam/debian-installation/steamapps/common/Proton 9.0 (Beta)/proton";
+
+var cts = new CancellationTokenSource();
+
+AppDomain.CurrentDomain.ProcessExit += (_, _) => cts.Cancel();
 
 var processInfo = new ProcessStartInfo("python3")
 {
@@ -49,7 +54,7 @@ foreach (var kvp in envVars)
 
 var logsDir = Path.Combine(BS_DIR, "Logs");
 
-using var process = Process.Start(processInfo) ?? throw new InvalidOperationException("Failed to start game process.");
+using var process = ProcessHelper.StartProcess(processInfo, cts.Token);
 process.EnableRaisingEvents = true;
 
 var gameExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -94,9 +99,7 @@ var monitorTask = Task.Run(async () =>
         RedirectStandardError = true,
     };
 
-    using var tailProcess = Process.Start(tailStartInfo);
-    if (tailProcess == null)
-        return;
+    using var tailProcess = ProcessHelper.StartProcess(tailStartInfo, cts.Token);
 
     tailProcess.EnableRaisingEvents = true;
     var tailExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
