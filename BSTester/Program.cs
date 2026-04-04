@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using FileSystemWatcher = System.IO.FileSystemWatcher;
 
 const string STEAM_DIR = "/home/sky/.steam/steam";
 const string STEAM_COMPAT_DIR = "/home/sky/.local/share/BSManager/SharedContent/compatdata";
@@ -45,5 +47,92 @@ foreach (var kvp in envVars)
     processInfo.EnvironmentVariables[kvp.Key] = kvp.Value;
 }
 
-using var process = Process.Start(processInfo);
-process?.WaitForExit();
+var logsDir = Path.Combine(BS_DIR, "Logs");
+
+using var process = Process.Start(processInfo) ?? throw new InvalidOperationException("Failed to start game process.");
+process.EnableRaisingEvents = true;
+
+var gameExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+process.Exited += (_, _) => gameExited.TrySetResult(true);
+
+// Monitor for log file recreation and stream it to stdout.
+var monitorTask = Task.Run(async () =>
+{
+    using var watcher = new FileSystemWatcher(logsDir, "*.log")
+    {
+        NotifyFilter = NotifyFilters.FileName | NotifyFilters.CreationTime,
+        EnableRaisingEvents = true,
+    };
+
+    var fileRecreated = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    FileSystemEventHandler onCreated = (_, e) =>
+    {
+        if (e.Name != "_latest.log")
+            fileRecreated.TrySetResult(e.Name);
+    };
+
+    watcher.Created += onCreated;
+
+    // Wait for either recreation, game exit, or timeout.
+    var timeout = Task.Delay(TimeSpan.FromSeconds(30));
+    var ready = await Task.WhenAny(fileRecreated.Task, gameExited.Task, timeout);
+
+    watcher.Created -= onCreated;
+
+    if (ready != fileRecreated.Task) return;
+
+    var logFileName = await fileRecreated.Task;
+    if (string.IsNullOrWhiteSpace(logFileName)) return;
+    var logPath = Path.Combine(logsDir, logFileName);
+    
+    var tailStartInfo = new ProcessStartInfo("tail")
+    {
+        ArgumentList = { "-F", logPath },
+        UseShellExecute = false,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+    };
+
+    using var tailProcess = Process.Start(tailStartInfo);
+    if (tailProcess == null)
+        return;
+
+    tailProcess.EnableRaisingEvents = true;
+    var tailExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    DataReceivedEventHandler onOutput = (_, e) =>
+    {
+        if (e.Data != null)
+            Console.WriteLine(e.Data);
+    };
+
+    DataReceivedEventHandler onError = (_, e) =>
+    {
+        if (e.Data != null)
+            Console.Error.WriteLine(e.Data);
+    };
+
+    EventHandler onTailExited = (_, _) => tailExited.TrySetResult(true);
+
+    tailProcess.OutputDataReceived += onOutput;
+    tailProcess.ErrorDataReceived += onError;
+    tailProcess.Exited += onTailExited;
+
+    tailProcess.BeginOutputReadLine();
+    tailProcess.BeginErrorReadLine();
+
+    var finished = await Task.WhenAny(gameExited.Task, tailExited.Task);
+
+    if (finished == gameExited.Task && !tailProcess.HasExited)
+    {
+        try { tailProcess.Kill(); } catch { }
+        await tailExited.Task;
+    }
+
+    tailProcess.OutputDataReceived -= onOutput;
+    tailProcess.ErrorDataReceived -= onError;
+    tailProcess.Exited -= onTailExited;
+});
+
+await Task.WhenAll(gameExited.Task, monitorTask);
