@@ -17,6 +17,7 @@ public static class Program
             RedirectStandardError = true,
             WorkingDirectory = workingDirectory,
         };
+        psi.EnvironmentVariables["DOTNET_ROOT"] = "/home/sky/dotnet-legacy";
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start process");
         process.OutputDataReceived += (_, args) =>
         {
@@ -39,16 +40,31 @@ public static class Program
     {
         Console.WriteLine($"Checkout {commit}");
         RunProcess("git", ["checkout", commit], MONOMOD_SRC);
+        RunProcess("git", ["submodule", "update"], MONOMOD_SRC);
         Console.WriteLine("rm artifacts");
-        Directory.Delete(Path.Combine(MONOMOD_SRC, "artifacts"), recursive: true);
+        var artifactsDir = Path.Combine(MONOMOD_SRC, "artifacts");
+        if (Directory.Exists(artifactsDir))
+        {
+            Directory.Delete(artifactsDir, recursive: true);
+        }
         // RunProcess("dotnet", ["clean", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj"], MONOMOD_SRC);
         Console.WriteLine("dotnet build");
-        RunProcess("dotnet", ["build", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
+        RunProcess("/home/sky/dotnet-legacy/dotnet", ["build", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
         
-        RunProcess("ls", ["-l", "./artifacts/bin/MonoMod.RuntimeDetour/release_net452/"], MONOMOD_SRC);
+        var buildOutputDir = Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour/Release/net452");
+        if (!Directory.Exists(buildOutputDir))
+        {
+            buildOutputDir =  Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour/release_net452");
+        }
+
+        if (!Directory.Exists(buildOutputDir))
+        {
+            throw new Exception("MonoMod build not found");
+        }
+        
+        RunProcess("ls", ["-l", buildOutputDir], MONOMOD_SRC);
         Console.WriteLine("Replacing monomod");
-        var dir = Path.Combine(MONOMOD_SRC, "artifacts/bin/MonoMod.RuntimeDetour/release_net452/");
-        foreach (var file in Directory.GetFiles(dir))
+        foreach (var file in Directory.GetFiles(buildOutputDir))
         {
             if (Path.GetFileName(file) != "System.ValueTuple.dll")
             {
@@ -97,7 +113,10 @@ public static class Program
     
     public static void Main(string[] args)
     {
-        CheckoutAndCompileAndReplaceMonoMod("f2da9f5a86a26462bea920d347df50063163a646");
+        var starting = "";
+        var ending = "337bf786c"; // first 25 prerelease
+        //git rev-list --reverse --first-parent ?????..337bf786c
+        CheckoutAndCompileAndReplaceMonoMod("337bf786c");
         LoopRun();
     }
 }
