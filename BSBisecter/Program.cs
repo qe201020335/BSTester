@@ -159,7 +159,7 @@ public static class Program
             throw new Exception("git rev-list exited with code: " + proc.ExitCode);
         }
         
-        var commits = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse().ToList();
+        var commits = output.Split(new []{'\r', '\n'}, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse().ToList();
 
         var take = 0;
         
