@@ -44,9 +44,16 @@ public static class Program
 
     static void CheckoutAndCompileAndReplaceMonoMod(string commit)
     {
+        Console.WriteLine("git reset");
+        RunProcess("git", ["reset", "--hard"], MONOMOD_SRC);
+
         Console.WriteLine($"Checkout {commit}");
         RunProcess("git", ["checkout", commit], MONOMOD_SRC);
         RunProcess("git", ["submodule", "update"], MONOMOD_SRC);
+
+        Console.WriteLine("Apply ConditionalWeakTable patch");
+        RunProcess("git", ["apply", "ConditionalWeakTable.patch"], MONOMOD_SRC);
+
         Console.WriteLine("rm artifacts");
         var artifactsDir = Path.Combine(MONOMOD_SRC, "artifacts");
         if (Directory.Exists(artifactsDir))
@@ -123,12 +130,18 @@ public static class Program
         return false;
     }
     
+    // doesn't compile
+    private static readonly HashSet<string> BrokenCommits =
+        ["f23591bb96b44e5bbd91af97e5925d99e6266a36", "7a9b5dc39a09feed4da0750bce8a6ebbc21a8cec"];
+    
     public static void Main(string[] args)
     {
         var starting = "8fea484";  // last know good
         var ending = "337bf786c"; // first 25 prerelease
 
-        var progress = "";
+        // var progress = "fadcd980a69b7aa6066810ae67c2e3b4d2732405"; // hard broke, no mod works, needs conditional weak table patch
+        var progress = "e6120bdb1d3d4fa0d75ff4cc765132ee7476b1f0";
+        // var progress = "";
         
         //git rev-list --reverse --first-parent 8fea484..337bf786c
 
@@ -157,6 +170,11 @@ public static class Program
 
         foreach (var commit in commits.Skip(take))
         {
+            if (BrokenCommits.Contains(commit))
+            {
+                Console.WriteLine($"\n\n----- Broken commit {commit}, skipping  -----\n\n");
+                continue;
+            }
             Console.WriteLine($"\n\n----- Begin Testing {commit} -----\n\n");
             try
             {
