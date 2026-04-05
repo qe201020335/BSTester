@@ -21,11 +21,17 @@ public static class Program
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start process");
         process.OutputDataReceived += (_, args) =>
         {
-            Console.WriteLine(args.Data);
+            if (!string.IsNullOrWhiteSpace(args.Data))
+            {
+                Console.WriteLine(args.Data);
+            }
         };
         process.ErrorDataReceived += (_, args) =>
         {
-            Console.Error.WriteLine(args.Data);
+            if (!string.IsNullOrWhiteSpace(args.Data))
+            {
+                Console.Error.WriteLine(args.Data);
+            }
         };
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
@@ -49,7 +55,7 @@ public static class Program
         }
         // RunProcess("dotnet", ["clean", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj"], MONOMOD_SRC);
         Console.WriteLine("dotnet build");
-        RunProcess("/home/sky/dotnet-legacy/dotnet", ["build", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
+        RunProcess("/home/sky/dotnet-legacy/dotnet", ["build", "--property:WarningLevel=0", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
         
         var buildOutputDir = Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour/Release/net452");
         if (!Directory.Exists(buildOutputDir))
@@ -62,16 +68,17 @@ public static class Program
             throw new Exception("MonoMod build not found");
         }
         
-        RunProcess("ls", ["-l", buildOutputDir], MONOMOD_SRC);
-        Console.WriteLine("Replacing monomod");
+        // RunProcess("ls", ["-l", buildOutputDir], MONOMOD_SRC);
+        Console.WriteLine("Replacing monomod"); 
         foreach (var file in Directory.GetFiles(buildOutputDir))
         {
             if (Path.GetFileName(file) != "System.ValueTuple.dll")
             {
-                Console.WriteLine($"Copying {file}");
+                // Console.WriteLine($"Copying {file}");
                 File.Copy(file, Path.Combine(LIBS_DIR, Path.GetFileName(file)), overwrite: true);
             }
         }
+        Console.WriteLine($"Monomod copied from {buildOutputDir} to {LIBS_DIR}");
     }
     
     static bool Run()
@@ -83,17 +90,21 @@ public static class Program
             RedirectStandardError = true,
         };
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start process");
-        var output = "";
+        var trampoline = false;
         process.OutputDataReceived += (_, args) =>
         {
-            Console.WriteLine(args.Data);
-            output += args.Data + "\n";
+            if (!string.IsNullOrWhiteSpace(args.Data))
+            {
+                Console.WriteLine(args.Data);
+                trampoline = trampoline || args.Data.Contains("TRAMPOLINE ERROR DETECTED");
+            }
         };
         process.ErrorDataReceived += (_, args) => Console.Error.WriteLine(args.Data);
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         process.WaitForExit();
-        return output.Contains("TRAMPOLINE ERROR DETECTED");
+        if (process.ExitCode != 0) throw new Exception("BSTester exited with exit code: " + process.ExitCode);
+        return trampoline;
     }
 
     static bool LoopRun()
@@ -135,10 +146,18 @@ public static class Program
             throw new Exception("git rev-list exited with code: " + proc.ExitCode);
         }
         
-        var commits = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse();
+        var commits = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse().ToList();
 
-        foreach (var commit in commits)
+        var take = 0;
+        
+        if (progress != "" && (take = commits.IndexOf(progress)) != -1)
         {
+            Console.WriteLine($"Resuming from progress commit: {progress}");
+        }
+
+        foreach (var commit in commits.Skip(take))
+        {
+            Console.WriteLine($"\n\n----- Begin Testing {commit} -----\n\n");
             try
             {
                 CheckoutAndCompileAndReplaceMonoMod(commit);
@@ -147,13 +166,15 @@ public static class Program
                     Console.WriteLine($"Trampoline error not detected on commit: {commit}");
                     return;
                 }
+                Console.WriteLine($"Trampoline error detected on commit: {commit}");
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 
                 Console.WriteLine($"Error on commit {commit}");
                 throw;
             }
+            Console.WriteLine($"\n\n----- Finish Testing {commit} -----\n\n");
         }
 
     }
