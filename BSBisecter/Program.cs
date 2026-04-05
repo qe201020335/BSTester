@@ -52,7 +52,7 @@ public static class Program
         RunProcess("git", ["submodule", "update"], MONOMOD_SRC);
 
         Console.WriteLine("Apply ConditionalWeakTable patch");
-        RunProcess("git", ["apply", "ConditionalWeakTable.patch"], MONOMOD_SRC);
+        RunProcess("git", ["apply", "ConditionalWeakTable2.patch"], MONOMOD_SRC);
 
         Console.WriteLine("rm artifacts");
         var artifactsDir = Path.Combine(MONOMOD_SRC, "artifacts");
@@ -62,7 +62,7 @@ public static class Program
         }
         // RunProcess("dotnet", ["clean", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj"], MONOMOD_SRC);
         Console.WriteLine("dotnet build");
-        RunProcess("/home/sky/dotnet-legacy/dotnet", ["build", "--property:WarningLevel=0", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
+        RunProcess("/home/sky/dotnet-legacy/dotnet", ["build", "--property:WarningLevel=0", "./src/MonoMod.RuntimeDetour.New/MonoMod.RuntimeDetour.New.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
         
         var buildOutputDir = Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour/Release/net452");
         if (!Directory.Exists(buildOutputDir))
@@ -132,22 +132,23 @@ public static class Program
     
     // doesn't compile
     private static readonly HashSet<string> BrokenCommits =
-        ["f23591bb96b44e5bbd91af97e5925d99e6266a36", "7a9b5dc39a09feed4da0750bce8a6ebbc21a8cec"];
+        ["f23591bb96b44e5bbd91af97e5925d99e6266a36", "7a9b5dc39a09feed4da0750bce8a6ebbc21a8cec", "c50fabe291b78608dd1e5bdba935cf99cae45040", "44f69293e3cc99cc39aa28e3615840dd7ba5aa0f", "e1f6879b9ab8558658b9369621bce7d2903d94a4"];
     
     public static void Main(string[] args)
     {
-        var starting = "8fea484";  // last know good
-        var ending = "337bf786c"; // first 25 prerelease
+        const string starting = "v22.03.23.04";  // last know good
+        const string ending = "337bf786c"; // first 25 prerelease
 
-        // var progress = "fadcd980a69b7aa6066810ae67c2e3b4d2732405"; // hard broke, no mod works, needs conditional weak table patch
-        var progress = "e6120bdb1d3d4fa0d75ff4cc765132ee7476b1f0";
-        // var progress = "";
+        // const string progress = "fadcd980a69b7aa6066810ae67c2e3b4d2732405"; // hard broke, no mod works, needs ConditionalWeakTable patch
+        // const string progress = "8f66cfdfe73bfcc07414d777fe779d3dd9df34d3";  // need ConditionalWeakTable2 patch
+        const string progress = "8003c89964b3fde56fdfe1facf10f04b89922d42";  // MonoMod.RuntimeDetour.New
+        // const string progress = "";
         
         //git rev-list --reverse --first-parent 8fea484..337bf786c
 
         var psi = new ProcessStartInfo("git")
         {
-            Arguments = "rev-list --reverse --first-parent 8fea484..337bf786c",
+            Arguments = $"rev-list --reverse --first-parent {starting}..{ending}",
             RedirectStandardOutput = true,
             WorkingDirectory = MONOMOD_SRC,
         };
@@ -160,22 +161,27 @@ public static class Program
         }
         
         var commits = output.Split(new []{'\r', '\n'}, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse().ToList();
+        var total = commits.Count;
+        Console.WriteLine($"Total commits to test: {total}");
 
-        var take = 0;
-        
+        int take;
         if (progress != "" && (take = commits.IndexOf(progress)) != -1)
         {
             Console.WriteLine($"Resuming from progress commit: {progress}");
         }
 
-        foreach (var commit in commits.Skip(take))
+        const int rate = 10;
+        Console.WriteLine($"Testing every {rate} commits after skipping {take} commits");
+        var sample = 0;
+        foreach (var commit in commits.Skip(take).Where(_ => sample++ % rate == 0))
         {
+            var i = take + sample;
             if (BrokenCommits.Contains(commit))
             {
-                Console.WriteLine($"\n\n----- Broken commit {commit}, skipping  -----\n\n");
+                Console.WriteLine($"\n\n----- ({i}/{total}) Broken commit {commit}, skipping  -----\n\n");
                 continue;
             }
-            Console.WriteLine($"\n\n----- Begin Testing {commit} -----\n\n");
+            Console.WriteLine($"\n\n----- ({i}/{total}) Begin Testing {commit} -----\n\n");
             try
             {
                 CheckoutAndCompileAndReplaceMonoMod(commit);
@@ -192,7 +198,7 @@ public static class Program
                 Console.WriteLine($"Error on commit {commit}");
                 throw;
             }
-            Console.WriteLine($"\n\n----- Finish Testing {commit} -----\n\n");
+            Console.WriteLine($"\n\n----- ({i}/{total}) Finish Testing {commit} -----\n\n");
         }
 
     }
