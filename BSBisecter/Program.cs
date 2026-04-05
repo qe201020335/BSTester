@@ -52,7 +52,8 @@ public static class Program
         RunProcess("git", ["submodule", "update"], MONOMOD_SRC);
 
         Console.WriteLine("Apply ConditionalWeakTable patch");
-        RunProcess("git", ["apply", "ConditionalWeakTable2.patch"], MONOMOD_SRC);
+        RunProcess("git", ["apply", "../ConditionalWeakTable4.patch"], MONOMOD_SRC);
+        RunProcess("git", ["add", "*.cs"], MONOMOD_SRC);  // stage the changes so reset can remove created files
 
         Console.WriteLine("rm artifacts");
         var artifactsDir = Path.Combine(MONOMOD_SRC, "artifacts");
@@ -64,10 +65,10 @@ public static class Program
         Console.WriteLine("dotnet build");
         RunProcess("/home/sky/dotnet-legacy/dotnet", ["build", "--property:WarningLevel=0", "./src/MonoMod.RuntimeDetour.New/MonoMod.RuntimeDetour.New.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
         
-        var buildOutputDir = Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour/Release/net452");
+        var buildOutputDir = Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour.New/Release/net452");
         if (!Directory.Exists(buildOutputDir))
         {
-            buildOutputDir =  Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour/release_net452");
+            buildOutputDir =  Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour.New/release_net452");
         }
 
         if (!Directory.Exists(buildOutputDir))
@@ -141,7 +142,9 @@ public static class Program
 
         // const string progress = "fadcd980a69b7aa6066810ae67c2e3b4d2732405"; // hard broke, no mod works, needs ConditionalWeakTable patch
         // const string progress = "8f66cfdfe73bfcc07414d777fe779d3dd9df34d3";  // need ConditionalWeakTable2 patch
-        const string progress = "8003c89964b3fde56fdfe1facf10f04b89922d42";  // MonoMod.RuntimeDetour.New
+        // const string progress = "8003c89964b3fde56fdfe1facf10f04b89922d42";  // MonoMod.RuntimeDetour.New
+        // const string progress = "d6d33aa3647e8b1d5e7a9ba383c8fcfb405d0f88";  // ABI Breaking, need ConditionalWeakTable3 patch
+        const string progress = "fc403799c306945f37a502c3973ea96a0bffb32f";  // API Breaking, namespace change, need ConditionalWeakTable4 patch
         // const string progress = "";
         
         //git rev-list --reverse --first-parent 8fea484..337bf786c
