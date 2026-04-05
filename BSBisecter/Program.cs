@@ -116,9 +116,9 @@ public static class Program
 
     static bool LoopRun()
     {
-        for (var i = 0; i < 10; i++)
+        for (var i = 0; i < 25; i++)
         {
-            Console.WriteLine($"Run {i + 1}/10");
+            Console.WriteLine($"Run {i + 1}/25");
             if (Run())
             {
                 Console.WriteLine("Trampoline error detected!");
@@ -126,7 +126,7 @@ public static class Program
             }
         }
 
-        Console.WriteLine("Trampoline error not detected after 10 runs.");
+        Console.WriteLine("Trampoline error not detected after 25 runs.");
         return false;
     }
     
