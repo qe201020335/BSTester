@@ -37,7 +37,7 @@ gameProcess.EnableRaisingEvents = true;
 
 var gameExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 gameProcess.Exited += (_, _) => gameExited.TrySetResult(true);
-var trampolineTimeout = Task.Delay(TimeSpan.FromSeconds(45));
+var trampolineTimeout = Task.Delay(TimeSpan.FromSeconds(60));
 
 // Monitor for log file recreation and stream it to stdout.
 var monitorTask = Task.Run(async () =>
