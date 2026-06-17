@@ -1,0 +1,99 @@
+diff --git a/src/MonoMod.Backports/System/Runtime/CompilerServices/ConditionalWeakTable,lt_fx_4.0.cs b/src/MonoMod.Backports/System/Runtime/CompilerServices/ConditionalWeakTable,lt_fx_4.0.cs
+index 61356472..fab1ad40 100644
+--- a/src/MonoMod.Backports/System/Runtime/CompilerServices/ConditionalWeakTable,lt_fx_4.0.cs
++++ b/src/MonoMod.Backports/System/Runtime/CompilerServices/ConditionalWeakTable,lt_fx_4.0.cs
+@@ -83,11 +83,12 @@ namespace System.Runtime.CompilerServices {
+             }
+         }
+ 
++        // this is added in .NET 7
+         /// <summary>Adds a key to the table if it doesn't already exist.</summary>
+         /// <param name="key">The key to add.</param>
+         /// <param name="value">The key's property value.</param>
+         /// <returns>true if the key/value pair was added; false if the table already contained the key.</returns>
+-        public bool TryAdd(TKey key, TValue value) // TODO: Expose in ref assembly https://github.com/dotnet/runtime/issues/29368
++        internal bool TryAdd(TKey key, TValue value) // TODO: Expose in ref assembly https://github.com/dotnet/runtime/issues/29368
+         {
+             if (key is null) {
+                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.key);
+@@ -104,10 +105,12 @@ namespace System.Runtime.CompilerServices {
+             }
+         }
+ 
++
++        // this is added in NS2.1 and Core2.0
+         /// <summary>Adds the key and value if the key doesn't exist, or updates the existing key's value if it does exist.</summary>
+         /// <param name="key">key to add or update. May not be null.</param>
+         /// <param name="value">value to associate with key.</param>
+-        public void AddOrUpdate(TKey key, TValue value) {
++        internal void AddOrUpdate(TKey key, TValue value) {
+             if (key is null) {
+                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.key);
+             }
+@@ -142,8 +145,9 @@ namespace System.Runtime.CompilerServices {
+             }
+         }
+ 
++        // this is added in NS2.1 and Core2.0
+         /// <summary>Clear all the key/value pairs</summary>
+-        public void Clear() {
++        internal void Clear() {
+             lock (_lock) {
+                 // To clear, we would prefer to simply drop the existing container
+                 // and replace it with an empty one, as that's overall more efficient.
+diff --git a/src/MonoMod.Backports/System/Runtime/CompilerServices/ConditionalWeakTableExtensions.cs b/src/MonoMod.Backports/System/Runtime/CompilerServices/ConditionalWeakTableExtensions.cs
+index ba2a6e3f..65a72318 100644
+--- a/src/MonoMod.Backports/System/Runtime/CompilerServices/ConditionalWeakTableExtensions.cs
++++ b/src/MonoMod.Backports/System/Runtime/CompilerServices/ConditionalWeakTableExtensions.cs
+@@ -1,4 +1,15 @@
+-﻿#if NET40_OR_GREATER && !NETSTANDARD2_1_OR_GREATER  && !NETCOREAPP2_0_OR_GREATER
++﻿#if NETFRAMEWORK && !NET40_OR_GREATER
++#define BACKPORTS_IMPL
++#endif
++
++#if BACKPORTS_IMPL || NETCOREAPP2_0_OR_GREATER || NETSTANDARD2_1_OR_GREATER
++#define HAS_CWT_CLEAR
++#endif
++#if BACKPORTS_IMPL || NET7_0_OR_GREATER
++#define HAS_TRYADD
++#endif
++
++#if !BACKPORTS_IMPL && !NETSTANDARD2_1_OR_GREATER  && !NETCOREAPP2_0_OR_GREATER
+ #define CWT_NOT_ENUMERABLE
+ #endif
+ 
+@@ -88,5 +99,34 @@ namespace System.Runtime.CompilerServices {
+ #endif
+             }
+         }
++
++        public static void Clear<TKey, TValue>(this ConditionalWeakTable<TKey, TValue> self) where TKey : class where TValue : class? {
++            ThrowHelper.ThrowIfArgumentNull(self, nameof(self));
++#if HAS_CWT_CLEAR
++            self.Clear();
++#else
++            foreach (var kvp in self) {
++                self.Remove(kvp.Key);
++            }
++#endif
++        }
++
++        public static bool TryAdd<TKey, TValue>(this ConditionalWeakTable<TKey, TValue> self, TKey key, TValue value) where TKey : class where TValue : class? {
++            ThrowHelper.ThrowIfArgumentNull(self, nameof(self));
++#if HAS_TRYADD
++            return self.TryAdd(key, value);
++#else
++            var didAdd = false;
++            _ = self.GetValue(key, _ => {
++                didAdd = true;
++                return value;
++            });
++            return didAdd;
++#endif
++        }
++
++        // I'd like to include AddOrUpdate, but I don't think there's another way to update a value...
++        // We *could* remove-then-add, but I'm not sure I'm OK with that given its concurrency implications.
++        // I could do reflection again to find the lock object, but I'm not sure that its an important enough API.
+     }
+ }
