@@ -173,7 +173,7 @@ public static class Program
             Console.WriteLine($"Resuming from progress commit: {progress}");
         }
 
-        const int rate = 10;
+        const int rate = 1;
         Console.WriteLine($"Testing every {rate} commits after skipping {take} commits");
         var sample = 0;
         foreach (var commit in commits.Skip(take).Where(_ => sample++ % rate == 0))
