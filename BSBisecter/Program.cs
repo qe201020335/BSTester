@@ -54,7 +54,7 @@ public static class Program
         RunProcess("git", args, cwd);
     }
 
-    static void CheckoutAndCompileAndReplaceMonoMod(string commit, string? patch)
+    static void CheckoutAndCompileAndReplaceMonoMod(string commit, string? patch, bool isNew)
     {
         Console.WriteLine("git reset");
         Git(["reset", "--hard"], MONOMOD_SRC);
@@ -78,14 +78,17 @@ public static class Program
         {
             Directory.Delete(artifactsDir, recursive: true);
         }
+
+        var projectName = isNew ? "MonoMod.RuntimeDetour.New" : "MonoMod.RuntimeDetour";
+        
         // Dotnet(["clean", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj"], MONOMOD_SRC);
         Console.WriteLine("dotnet build");
-        Dotnet(["build", "--property:WarningLevel=0", "./src/MonoMod.RuntimeDetour.New/MonoMod.RuntimeDetour.New.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
+        Dotnet(["build", "--property:WarningLevel=0", $"./src/{projectName}/{projectName}.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
         
-        var buildOutputDir = Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour.New/Release/net452");
+        var buildOutputDir = Path.Combine(artifactsDir, $"bin/{projectName}/Release/net452");
         if (!Directory.Exists(buildOutputDir))
         {
-            buildOutputDir =  Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour.New/release_net452");
+            buildOutputDir =  Path.Combine(artifactsDir, $"bin/{projectName}/release_net452");
         }
 
         if (!Directory.Exists(buildOutputDir))
@@ -151,24 +154,28 @@ public static class Program
     // doesn't compile
     private static readonly HashSet<string> BrokenCommits =
         ["f23591bb96b44e5bbd91af97e5925d99e6266a36", "7a9b5dc39a09feed4da0750bce8a6ebbc21a8cec", "c50fabe291b78608dd1e5bdba935cf99cae45040", "44f69293e3cc99cc39aa28e3615840dd7ba5aa0f", "e1f6879b9ab8558658b9369621bce7d2903d94a4"];
-    
+
+    private static readonly Dictionary<string, string> PatchIndex = new Dictionary<string, string>
+    {
+        ["fadcd980a69b7aa6066810ae67c2e3b4d2732405"] = "ConditionalWeakTable.patch",
+        ["8f66cfdfe73bfcc07414d777fe779d3dd9df34d3"] = "ConditionalWeakTable2.patch",
+        ["d6d33aa3647e8b1d5e7a9ba383c8fcfb405d0f88"] = "ConditionalWeakTable3.patch",
+        ["fc403799c306945f37a502c3973ea96a0bffb32f"] = "ConditionalWeakTable4.patch",
+    };
+
+    private const string COMMIT_NEW = "8003c89964b3fde56fdfe1facf10f04b89922d42"; // MonoMod.RuntimeDetour.New
+
     public static void Main(string[] args)
     {
         const string starting = "v22.03.23.04";  // last know good
         const string ending = "337bf786c"; // first 25 prerelease
 
-        // const string progress = "fadcd980a69b7aa6066810ae67c2e3b4d2732405"; // hard broke, no mod works, needs ConditionalWeakTable patch
-        // const string progress = "8f66cfdfe73bfcc07414d777fe779d3dd9df34d3";  // need ConditionalWeakTable2 patch
-        // const string progress = "8003c89964b3fde56fdfe1facf10f04b89922d42";  // MonoMod.RuntimeDetour.New
-        // const string progress = "d6d33aa3647e8b1d5e7a9ba383c8fcfb405d0f88";  // ABI Breaking, need ConditionalWeakTable3 patch
-        const string progress = "fc403799c306945f37a502c3973ea96a0bffb32f";  // API Breaking, namespace change, need ConditionalWeakTable4 patch
+        // must be full commit hash
+        const string progress = "fc403799c306945f37a502c3973ea96a0bffb32f";  
         // const string progress = "";
         
         var patchDir = Path.Combine(Directory.GetCurrentDirectory(), "patches");
         if (!Directory.Exists(patchDir)) throw new DirectoryNotFoundException($"Patches directory not found: {patchDir}");
-        var patch = Path.Combine(patchDir, "ConditionalWeakTable4.patch");
-        
-        //git rev-list --reverse --first-parent 8fea484..337bf786c
 
         var psi = new ProcessStartInfo("git")
         {
@@ -188,18 +195,55 @@ public static class Program
         var total = commits.Count;
         Console.WriteLine($"Total commits to test: {total}");
 
-        int take;
-        if (progress != "" && (take = commits.IndexOf(progress)) != -1)
+        var skip = 0;
+        if (progress != "")
         {
-            Console.WriteLine($"Resuming from progress commit: {progress}");
+            skip = commits.IndexOf(progress);
+            if (skip != -1)
+            {
+                Console.WriteLine($"Resuming from progress commit: {progress}");
+            }
+            else
+            {
+                skip = 0;
+                Console.WriteLine($"Resuming from progress commit: {progress}");
+            }
         }
 
-        const int rate = 1;
-        Console.WriteLine($"Testing every {rate} commits after skipping {take} commits");
+        var patch = "";
+        var isNew = false;
+
+        const int rate = 4;
+        Console.WriteLine($"Testing every {rate} commits after skipping {skip} commits");
+        var i = 0;
         var sample = 0;
-        foreach (var commit in commits.Skip(take).Where(_ => sample++ % rate == 0))
+        foreach (var commit in commits)
         {
-            var i = take + sample;
+            i++;
+            if (PatchIndex.TryGetValue(commit, out var p))
+            {
+                Console.WriteLine($"Patch found for commit {commit}: {p}");
+                patch = Path.Combine(patchDir, p);
+            }
+            
+            if (!isNew && commit == COMMIT_NEW)
+            {
+                isNew = true;
+                Console.WriteLine($"Switching to MonoMod.RuntimeDetour.New at commit {commit}");
+            }
+
+            if (skip > 0)
+            {
+                skip--;
+                continue;
+            }
+            
+            if (sample++ % rate != 0)
+            {
+                // Console.WriteLine($"\n\n----- ({i}/{total}) Skipping {commit} -----\n\n");
+                continue;
+            }
+            
             if (BrokenCommits.Contains(commit))
             {
                 Console.WriteLine($"\n\n----- ({i}/{total}) Broken commit {commit}, skipping  -----\n\n");
@@ -208,7 +252,7 @@ public static class Program
             Console.WriteLine($"\n\n----- ({i}/{total}) Begin Testing {commit} -----\n\n");
             try
             {
-                CheckoutAndCompileAndReplaceMonoMod(commit, patch);
+                CheckoutAndCompileAndReplaceMonoMod(commit, patch, isNew);
                 if (!LoopRun())
                 {
                     Console.WriteLine($"Trampoline error not detected on commit: {commit}");
