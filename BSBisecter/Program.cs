@@ -54,7 +54,7 @@ public static class Program
         RunProcess("git", args, cwd);
     }
 
-    static void CheckoutAndCompileAndReplaceMonoMod(string commit)
+    static void CheckoutAndCompileAndReplaceMonoMod(string commit, string? patch)
     {
         Console.WriteLine("git reset");
         Git(["reset", "--hard"], MONOMOD_SRC);
@@ -63,9 +63,14 @@ public static class Program
         Git(["checkout", commit], MONOMOD_SRC);
         Git(["submodule", "update"], MONOMOD_SRC);
 
-        Console.WriteLine("Apply ConditionalWeakTable patch");
-        Git(["apply", "../ConditionalWeakTable4.patch"], MONOMOD_SRC);
-        Git(["add", "*.cs"], MONOMOD_SRC);  // stage the changes so reset can remove created files
+        if (!string.IsNullOrWhiteSpace(patch))
+        {
+            var absPath = Path.GetFullPath(patch);
+            if (!File.Exists(absPath)) throw new FileNotFoundException($"Patch file not found: {absPath}");
+            Console.WriteLine($"Applying patch: {Path.GetFileName(absPath)}");
+            Git(["apply", absPath], MONOMOD_SRC);
+            Git(["add", "*.cs"], MONOMOD_SRC);  // stage the changes so reset can remove created files
+        }
 
         Console.WriteLine("rm artifacts");
         var artifactsDir = Path.Combine(MONOMOD_SRC, "artifacts");
@@ -159,6 +164,10 @@ public static class Program
         const string progress = "fc403799c306945f37a502c3973ea96a0bffb32f";  // API Breaking, namespace change, need ConditionalWeakTable4 patch
         // const string progress = "";
         
+        var patchDir = Path.Combine(Directory.GetCurrentDirectory(), "patches");
+        if (!Directory.Exists(patchDir)) throw new DirectoryNotFoundException($"Patches directory not found: {patchDir}");
+        var patch = Path.Combine(patchDir, "ConditionalWeakTable4.patch");
+        
         //git rev-list --reverse --first-parent 8fea484..337bf786c
 
         var psi = new ProcessStartInfo("git")
@@ -199,7 +208,7 @@ public static class Program
             Console.WriteLine($"\n\n----- ({i}/{total}) Begin Testing {commit} -----\n\n");
             try
             {
-                CheckoutAndCompileAndReplaceMonoMod(commit);
+                CheckoutAndCompileAndReplaceMonoMod(commit, patch);
                 if (!LoopRun())
                 {
                     Console.WriteLine($"Trampoline error not detected on commit: {commit}");

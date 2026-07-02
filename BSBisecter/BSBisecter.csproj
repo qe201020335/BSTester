@@ -11,4 +11,11 @@
       <ProjectReference Include="..\BSTester\BSTester.csproj" />
     </ItemGroup>
 
+    <Target Name="Copy patches" AfterTargets="Build">
+        <ItemGroup>
+            <PatchFiles Include="$(ProjectDir)\..\patches\**\*.*" />
+        </ItemGroup>
+        <Copy SourceFiles="@(PatchFiles)" DestinationFolder="$(OutputPath)\patches\%(RecursiveDir)" SkipUnchangedFiles="false" />
+    </Target>
+
 </Project>
