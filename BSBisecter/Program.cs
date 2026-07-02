@@ -6,6 +6,7 @@ public static class Program
 {
     private const string MONOMOD_SRC = "/home/sky/source/MonoMod/";
     private const string LIBS_DIR = "/home/sky/.local/share/BSManager/BSInstances/1.42.2 Debug/Libs/";
+    private const string DOTNET_ROOT = "/home/sky/dotnet-legacy";
 
 
     static void RunProcess(string command, string[] args, string workingDirectory)
@@ -17,7 +18,7 @@ public static class Program
             RedirectStandardError = true,
             WorkingDirectory = workingDirectory,
         };
-        psi.EnvironmentVariables["DOTNET_ROOT"] = "/home/sky/dotnet-legacy";
+        psi.EnvironmentVariables["DOTNET_ROOT"] = DOTNET_ROOT;
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start process");
         process.OutputDataReceived += (_, args) =>
         {
@@ -42,18 +43,29 @@ public static class Program
         }
     }
 
+    static void Dotnet(string[] args, string cwd)
+    {
+        var dotnet = Path.Combine(DOTNET_ROOT, "dotnet");
+        RunProcess(dotnet, args, cwd);
+    }
+    
+    static void Git(string[] args, string cwd)
+    {
+        RunProcess("git", args, cwd);
+    }
+
     static void CheckoutAndCompileAndReplaceMonoMod(string commit)
     {
         Console.WriteLine("git reset");
-        RunProcess("git", ["reset", "--hard"], MONOMOD_SRC);
+        Git(["reset", "--hard"], MONOMOD_SRC);
 
         Console.WriteLine($"Checkout {commit}");
-        RunProcess("git", ["checkout", commit], MONOMOD_SRC);
-        RunProcess("git", ["submodule", "update"], MONOMOD_SRC);
+        Git(["checkout", commit], MONOMOD_SRC);
+        Git(["submodule", "update"], MONOMOD_SRC);
 
         Console.WriteLine("Apply ConditionalWeakTable patch");
-        RunProcess("git", ["apply", "../ConditionalWeakTable4.patch"], MONOMOD_SRC);
-        RunProcess("git", ["add", "*.cs"], MONOMOD_SRC);  // stage the changes so reset can remove created files
+        Git(["apply", "../ConditionalWeakTable4.patch"], MONOMOD_SRC);
+        Git(["add", "*.cs"], MONOMOD_SRC);  // stage the changes so reset can remove created files
 
         Console.WriteLine("rm artifacts");
         var artifactsDir = Path.Combine(MONOMOD_SRC, "artifacts");
@@ -61,9 +73,9 @@ public static class Program
         {
             Directory.Delete(artifactsDir, recursive: true);
         }
-        // RunProcess("dotnet", ["clean", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj"], MONOMOD_SRC);
+        // Dotnet(["clean", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj"], MONOMOD_SRC);
         Console.WriteLine("dotnet build");
-        RunProcess("/home/sky/dotnet-legacy/dotnet", ["build", "--property:WarningLevel=0", "./src/MonoMod.RuntimeDetour.New/MonoMod.RuntimeDetour.New.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
+        Dotnet(["build", "--property:WarningLevel=0", "./src/MonoMod.RuntimeDetour.New/MonoMod.RuntimeDetour.New.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
         
         var buildOutputDir = Path.Combine(artifactsDir, "bin/MonoMod.RuntimeDetour.New/Release/net452");
         if (!Directory.Exists(buildOutputDir))
