@@ -59,6 +59,9 @@ public static class Program
         Console.WriteLine("git reset");
         Git(["reset", "--hard"], MONOMOD_SRC);
 
+        Console.WriteLine("git clean");
+        Git(["clean", "-df"], MONOMOD_SRC);
+
         Console.WriteLine($"Checkout {commit}");
         Git(["checkout", commit], MONOMOD_SRC);
         Git(["submodule", "update"], MONOMOD_SRC);
@@ -72,19 +75,13 @@ public static class Program
             Git(["add", "*.cs"], MONOMOD_SRC);  // stage the changes so reset can remove created files
         }
 
-        Console.WriteLine("rm artifacts");
-        var artifactsDir = Path.Combine(MONOMOD_SRC, "artifacts");
-        if (Directory.Exists(artifactsDir))
-        {
-            Directory.Delete(artifactsDir, recursive: true);
-        }
-
         var projectName = isNew ? "MonoMod.RuntimeDetour.New" : "MonoMod.RuntimeDetour";
         
         // Dotnet(["clean", "./src/MonoMod.RuntimeDetour/MonoMod.RuntimeDetour.csproj"], MONOMOD_SRC);
         Console.WriteLine("dotnet build");
         Dotnet(["build", "--property:WarningLevel=0", $"./src/{projectName}/{projectName}.csproj", "-c", "Release", "-f", "net452"], MONOMOD_SRC);
         
+        var artifactsDir = Path.Combine(MONOMOD_SRC, "artifacts");
         var buildOutputDir = Path.Combine(artifactsDir, $"bin/{projectName}/Release/net452");
         if (!Directory.Exists(buildOutputDir))
         {
