@@ -2,8 +2,7 @@
 
 A tester program for testing the "Trampoline" exception issue when running modded Beat Saber under Proton.
 
-The issue has since been fixed (and explained) in https://github.com/MonoMod/MonoMod/pull/308
-
+**The issue has since been fixed (and explained) in https://github.com/MonoMod/MonoMod/pull/308**
 ## HOW TO RUN
 
 1. Clone the repository or download the source code
